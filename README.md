@@ -41,22 +41,25 @@ organised by task with an explanation above each section:
 | 9 | **Stretch**: multi-task noise interaction |
 | 10 | Model cards, package versions and the output zip |
 
-## How to run (Google Colab, free T4)
+## How to run (Google Colab, free T4; no Google Drive needed)
 1. Open the notebook in Colab (*File → Upload notebook*) and set *Runtime → Change runtime type → T4 GPU*.
-2. Run all cells. The Tox21 data is downloaded automatically. All outputs are written to Google
-   Drive (`MyDrive/CM4044_MP2_results`), and each training run is saved the moment it finishes.
-3. After a disconnect, re-run sections 0–5 (about 1 min), then the section you were in. Finished runs
-   are skipped.
-4. The last cell downloads `CM4044_MP2-30_outputs.zip`, containing:
+2. Run all cells. The Tox21 data is downloaded automatically. Outputs are written to the Colab runtime.
+   After each seed of the grid, and at the end, `CM4044_MP2-30_outputs.zip` is downloaded to your computer.
+   Allow multiple downloads when the browser asks. The zip contains:
    * the curated dataset and curation log;
-   * all results tables and figures;
+   * results tables and figures;
    * model cards and checkpoints.
+3. If Colab disconnects, set `RESUME_FROM_ZIP = True` in section 0, run all cells and upload the latest
+   zip. Finished runs are skipped.
+4. Submit the notebook (*File → Download → .ipynb*, with outputs), the final zip and the slides.
 
-   Submit it together with the notebook and the slides.
+Alternatively, set `USE_DRIVE = True` in section 0 to write everything straight to
+`MyDrive/CM4044_MP2_results`, which survives disconnects without zips. Keep the tab open during long
+runs: free Colab disconnects after ~90 min without interaction.
 
-**Splitting the grid across the group.** In section 6, each member runs `run_grid(..., seeds=[k])`
-with their own seed on their own account. Afterwards, put all `results/runs/*.json` and
-`results/detection/*.json` files into one Drive folder and run section 7.
+**Splitting the grid across the group.** In section 6, each member replaces `SEEDS` with their own
+seed (`[0]`, `[1]`, `[2]`) on their own account. To combine, one person sets `RESUME_FROM_ZIP = True`,
+selects all members' zips at once in the upload dialog, and runs sections 7–10.
 
 **Quick smoke test.** Set `QUICK = True` in the configuration cell. This runs the whole notebook in
 about 10 minutes, with 1 seed, 1 noise level and a few epochs, and writes to separate

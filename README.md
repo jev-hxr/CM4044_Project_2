@@ -29,7 +29,7 @@ organised by task with an explanation above each section:
 
 | Section | Content |
 |---|---|
-| 0 | Setup (package install, Google Drive) and configuration: every setting in one cell |
+| 0 | Setup (package install, resume from zip) and configuration: every setting in one cell |
 | 1 | Data curation → curated dataset + curation log |
 | 2 | **Task 1**: natural noise (imbalance, replicate and cross-assay disagreement) |
 | 3 | Synthetic noise injection |
@@ -53,9 +53,7 @@ organised by task with an explanation above each section:
    zip. Finished runs are skipped.
 4. Submit the notebook (*File → Download → .ipynb*, with outputs), the final zip and the slides.
 
-Alternatively, set `USE_DRIVE = True` in section 0 to write everything straight to
-`MyDrive/CM4044_MP2_results`, which survives disconnects without zips. Keep the tab open during long
-runs: free Colab disconnects after ~90 min without interaction.
+Keep the tab open during long runs: free Colab disconnects after ~90 min without interaction.
 
 **Splitting the grid across the group.** In section 6, each member replaces `SEEDS` with their own
 seed (`[0]`, `[1]`, `[2]`) on their own account. To combine, one person sets `RESUME_FROM_ZIP = True`,

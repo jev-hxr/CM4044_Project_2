@@ -22,68 +22,64 @@ defence is a main model, trained with identical splits, seeds, hyperparameters a
 
 ---
 
-## Quick start (Google Colab, free T4)
+## Everything is in one notebook
 
-1. Open `notebooks/MP2-30_Tox21_label_noise.ipynb` in Colab (*File → Open notebook → GitHub*, or upload it).
-2. Set *Runtime → Change runtime type → T4 GPU*.
-3. Run the cells from top to bottom. The repository is cloned into Google Drive, and each training run
-   is saved there as soon as it finishes. After a disconnect, re-run the same cell and it skips the
-   runs that are already done.
+**`notebooks/MP2-30_Tox21_label_noise.ipynb`** contains all of the project's code (~1,000 lines),
+organised by task with an explanation above each section:
 
-To split the grid across the three group members, give everyone the same command with a different
-`--seeds 0`, `--seeds 1` or `--seeds 2`. Then copy all the `results/runs/*.json` and
-`results/detection/*.json` files into one folder and run `python -m noisytox.aggregate`.
+| Section | Content |
+|---|---|
+| 0 | Setup (package install, Google Drive) and configuration: every setting in one cell |
+| 1 | Data curation → curated dataset + curation log |
+| 2 | **Task 1**: natural noise (imbalance, replicate and cross-assay disagreement) |
+| 3 | Synthetic noise injection |
+| 4 | Models (MLP, GINE, RF) and training, incl. label smoothing and loss correction |
+| 5 | Noise detectors (out-of-fold probabilities, confident learning, ensemble filter) |
+| 6 | **Tasks 2 + 3**: noise level × defence × model × seed grid |
+| 7 | Results: baseline-vs-main comparison table, degradation curves, gain heatmap |
+| 8 | **Task 4**: detector flags vs. real suspect labels |
+| 9 | **Stretch**: multi-task noise interaction |
+| 10 | Model cards, package versions and the output zip |
 
-### Running locally (CPU works, GPU optional)
-```bash
-pip install -r requirements.txt          # or: conda env create -f environment.yml
-python -m noisytox.curate                # data/tox21_curated.csv + data/curation_log.md
-python -m noisytox.natural_noise         # Task 1
-python -m noisytox.run_grid              # Tasks 2+3 (full grid; see --help for subsets)
-python -m noisytox.aggregate             # tables + figures
-python -m noisytox.validate_suspects     # Task 4
-python -m noisytox.interaction           # stretch goal
-python -m noisytox.model_cards           # models/cards/*.md
-```
+## How to run (Google Colab, free T4)
+1. Open the notebook in Colab (*File → Upload notebook*) and set *Runtime → Change runtime type → T4 GPU*.
+2. Run all cells. The Tox21 data is downloaded automatically. All outputs are written to Google
+   Drive (`MyDrive/CM4044_MP2_results`), and each training run is saved the moment it finishes.
+3. After a disconnect, re-run sections 0–5 (about 1 min), then the section you were in. Finished runs
+   are skipped.
+4. The last cell downloads `CM4044_MP2-30_outputs.zip`, containing:
+   * the curated dataset and curation log;
+   * all results tables and figures;
+   * model cards and checkpoints.
 
-### Compute budget (measured)
-| Step | 4-core CPU (dev machine) | Colab T4 (estimate) |
-|---|---|---|
-| Curation + features | 25 s | 30 s |
-| Detector OOF probabilities, per noise condition | ~100 s | ~60–90 s |
-| MLP run | ~10 s | ~5 s |
-| RF run (100 trees × 12 assays) | ~25–40 s | ~60 s (2 vCPUs) |
-| GNN run | ~4–6 min | ~1 min |
-| Full grid: 7 conditions × 3 seeds × (3 RF + 6 MLP + 6 GNN runs) | — | ≈ 4–5 h in total, resumable |
+   Submit it together with the notebook and the slides.
 
----
+**Splitting the grid across the group.** In section 6, each member runs `run_grid(..., seeds=[k])`
+with their own seed on their own account. Afterwards, put all `results/runs/*.json` and
+`results/detection/*.json` files into one Drive folder and run section 7.
+
+**Quick smoke test.** Set `QUICK = True` in the configuration cell. This runs the whole notebook in
+about 10 minutes, with 1 seed, 1 noise level and a few epochs, and writes to separate
+`results_quick/` and `figures_quick/` folders.
+
+**Locally (outside Colab):** run `pip install -r requirements.txt`, then run the notebook in Jupyter.
+Outputs go to `./mp2_work/`.
+
+### Compute budget
+| Step | Colab T4 (estimate) |
+|---|---|
+| Curation + features | ~1 min |
+| Detector out-of-fold probabilities, per noise condition | ~1 min |
+| MLP run / RF run / GNN run | ~5 s / ~60 s / ~1 min |
+| Full grid: 7 conditions × 3 seeds × (3 RF + 6 MLP + 6 GNN runs) | ≈ 4–5 h in total, resumable |
+| Task 4 + stretch | ~40 min |
 
 ## Repository layout
 ```
-noisytox/
-  config.py            every path, task name and hyperparameter
-  curate.py            standardisation, deduplication, scaffold split, curation log
-  data.py              dataset loader, ECFP4 + PyG graph featurisation (cached)
-  noise.py             synthetic noise injection (symmetric / class-conditional)
-  models.py            MLP and GINE architectures
-  train.py             masked multi-task training, label smoothing, forward correction, RF
-  detectors.py         out-of-fold probabilities, confident learning, ensemble-disagreement filter
-  natural_noise.py     Task 1: imbalance, replicate and cross-assay disagreement
-  run_grid.py          Tasks 2+3: noise x defence x model x seed grid (resumable)
-  aggregate.py         summary tables, comparison table, figures
-  validate_suspects.py Task 4: detector flags vs. real assay-disagreement suspects
-  interaction.py       stretch: multi-task noise interaction
-  model_cards.py       model-card generator
-  versions.py          records package versions to results/versions.json
-notebooks/MP2-30_Tox21_label_noise.ipynb   Colab driver notebook
-data/raw/tox21.csv.gz                      raw MoleculeNet file (sha256-checked)
-data/tox21_curated.csv                     curated dataset (deliverable 3)
-data/curation_log.md                       every curation decision with record counts
-data/duplicate_conflicts.csv               replicate label conflicts (natural noise)
-results/                                   CSV / markdown outputs (comparison_table.md = slide table)
-figures/                                   PNG figures for the slides
-models/cards/                              model cards; checkpoints go to models/checkpoints/
-docs/slides_outline.md                     12-slide outline
+notebooks/MP2-30_Tox21_label_noise.ipynb   the whole project (code + explanations)
+data/raw/tox21.csv.gz                      raw MoleculeNet file (the notebook also downloads it; sha256-checked)
+docs/slides_outline.md                     12-slide outline with speaker split and likely questions
+requirements.txt                           package versions for a local run
 ```
 
 ---
@@ -107,7 +103,7 @@ disagreement between replicates *is* natural label noise. The result is 7,522 co
 
    A molecule active in one assay and inactive in its partner is a **suspect label**.
 
-**Synthetic noise (Task 2)**, in `noisytox/noise.py`, injected into train + valid labels only.
+**Synthetic noise (Task 2)** is injected into train + valid labels only.
 The test set always keeps its original labels.
 * `sym`: exactly *p* × (number of labelled molecules) labels per assay are flipped uniformly at random.
   With about 5 % actives, this mostly creates *false actives*.

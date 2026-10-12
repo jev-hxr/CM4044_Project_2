@@ -125,7 +125,7 @@ def main(argv=None):
           "`fisher_p_max` = largest one-sided Fisher p over seeds (H1: suspects flagged more often). "
           "`score_auc` = ROC-AUC of the continuous detector score for separating suspect from concordant labels "
           "(0.5 = no signal).\n",
-          summ.round(4).to_markdown(index=False),
+          summ.round(4).assign(fisher_p_max=summ.fisher_p_max.map(lambda v: f"{v:.1e}")).to_markdown(index=False),
           "\n## Which label of a disagreeing pair is flagged?\n", dr.round(3).to_markdown(index=False)]
     (C.RESULTS_DIR / "suspects_report.md").write_text("\n".join(md) + "\n")
     print("\n".join(md))
@@ -143,12 +143,13 @@ def main(argv=None):
                color="#7f7f7f", label="concordant (related assays agree)")
         for k, (lift, p) in enumerate(zip(m.lift, sub.fisher_p.max())):
             ax.text(k, max(m.flag_rate_suspect.iloc[k], m.flag_rate_concordant.iloc[k]) * 100 + 2,
-                    f"lift {lift:.1f}x\np={p:.1g}", ha="center", fontsize=7)
+                    f"lift {lift:.1f}x\n" + (f"p={p:.0e}" if p > 0 else "p<1e-300"), ha="center", fontsize=7)
         ax.set_xticks(x, m.index)
         ax.set_title(f"{name}")
         ax.set_ylabel("labels flagged as noisy (%)")
         ax.grid(alpha=0.3, axis="y")
-    axes[0].legend(fontsize=7, loc="upper left")
+    axes[0].set_ylim(0, per.groupby(["detector", "stratum"]).flag_rate_suspect.mean().max() * 100 * 1.3)
+    axes[0].legend(fontsize=7, loc="upper right")
     fig.suptitle("Do detectors flag real suspect labels more often than concordant ones?", fontsize=10)
     fig.tight_layout()
     fig.savefig(C.FIG_DIR / "fig_suspects.png", dpi=200)

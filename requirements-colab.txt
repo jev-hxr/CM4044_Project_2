@@ -1,0 +1,6 @@
+# Extra packages on top of the Google Colab base image (torch, scikit-learn, pandas,
+# numpy, scipy and matplotlib are pre-installed there).
+rdkit==2026.9.1
+torch_geometric==2.8.1
+cleanlab==2.9.0
+tabulate>=0.9

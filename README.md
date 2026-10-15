@@ -1,151 +1,149 @@
-# CM4044 Mini Project 2 · MP2-30 — How Noisy Is Toxicity?
-### Label noise and ensemble robustness on Tox21
+# CM4044 Mini Project 2 · MP2-30
+## How Noisy Is Toxicity? Label Noise and Ensemble Robustness on Tox21
 
-Toxicity labels come from real high-throughput assays with real error rates. This project measures
-(1) how much **natural** noise Tox21 contains, (2) how fast an undefended MLP / GNN degrades under
-**controlled synthetic** label noise, (3) which **defences** recover the loss, and (4) whether the best
-noise detector red-flags **real suspect labels** (molecules whose related assays disagree) more often
-than concordant ones.
+**Question.** Toxicity labels come from real assays with real error rates. How much label noise can
+training pipelines tolerate, and which defences actually work?
 
-**Baseline vs. main models.** The baseline is the *undefended* model (standard training). Each
-defence is a main model, trained with identical splits, seeds, hyperparameters and metrics.
-
-| Role | Model | Notes |
-|---|---|---|
-| Classical baseline | Random forest on ECFP4 | one forest per assay |
-| Baseline (undefended) | multi-task MLP on ECFP4, GINE graph network | standard masked BCE |
-| Main: label smoothing (`ls`) | MLP / GNN | ε = 0.1 |
-| Main: loss correction (`fc`) | MLP / GNN | forward correction, noise channel estimated by confident learning |
-| Main: loss correction, oracle (`fc_oracle`) | MLP / GNN | true flip rates; an upper bound that isolates estimation error |
-| Main: confident learning (`cl`) | RF / MLP / GNN | cleanlab `prune_by_noise_rate` → flagged labels set to missing |
-| Main: ensemble-disagreement filter (`ed`) | RF / MLP / GNN | majority vote of 3 diverse out-of-fold learners |
+**Answer in one line.** About 5 % random label noise is tolerable, but above 10 % every model degrades.
+Cleaning noisy labels (ensemble-disagreement filtering) helps the random forest and MLP most, while the
+graph neural network is robust on its own. A confident-learning noise detector flags *real* suspect labels
+in Tox21 2.4–5.7× more often than consistent ones.
 
 ---
 
-## Everything is in one notebook
+## Submission contents
 
-**`notebooks/MP2-30_Tox21_label_noise.ipynb`** contains all of the project's code (~1,000 lines),
-organised by task with an explanation above each section:
+| Deliverable | Where |
+|---|---|
+| **Code** | `MP2-30_Tox21_label_noise.ipynb`, a single self-contained Google Colab notebook with all code, explanations and outputs |
+| **Environment** | `requirements.txt`; exact versions used in the run are recorded in `results/versions.json` |
+| **Curated dataset** | `data/tox21_curated.csv` + `data/curation_log.md` (every filtering, standardisation and deduplication decision) + `data/duplicate_conflicts.csv` |
+| **Trained models** | `models/checkpoints/`: undefended baselines and defended models (MLP, GIN: `.pt`; RF: `rf_none_clean_s0.joblib`) |
+| **Model cards** | `models/cards/`: one card per model–defence pair (15 cards) |
+| **Results** | `results/` (tables, incl. `comparison_table.md`) and `figures/` (all plots) |
+| **Slides** | 12-slide presentation (separate file) |
+
+---
+
+## How to reproduce
+
+1. Open `MP2-30_Tox21_label_noise.ipynb` in **Google Colab** and select *Runtime → Change runtime type → T4 GPU*.
+2. *Runtime → Run all*. The notebook installs the three packages Colab lacks (RDKit, PyTorch Geometric,
+   cleanlab), downloads Tox21 automatically (checked against its SHA-256), and runs every step.
+   No Google Drive is needed.
+3. A progress zip (`CM4044_MP2-30_outputs.zip`) is downloaded after each seed of the experiment grid and
+   once at the end. If Colab disconnects, set `RESUME_FROM_ZIP = True` in the first code cell, run all
+   cells again and upload the latest zip: finished runs are skipped.
+
+**Run time on a free Colab T4** (settings below): about 1–1.5 h for the grid, plus about 20 min for
+the rest. Setting `QUICK = True` in the configuration cell runs a 10-minute smoke test instead; it writes
+to separate `results_quick/` and `figures_quick/` folders.
+
+**Running locally:** `pip install -r requirements.txt`, then open the notebook in Jupyter. A GPU is
+optional; outputs go to `./mp2_work/`.
+
+### Settings used for the reported results
+All settings live in the configuration cell (section 0) and are identical for every model and defence.
+
+| Setting | Value |
+|---|---|
+| Seeds | 0, 1 |
+| Noise types | symmetric (`sym`), class-conditional prior-preserving (`cc`) |
+| Noise rates | 5 %, 10 %, 20 % (train + validation labels only; test labels never changed) |
+| Split | deterministic Bemis–Murcko scaffold split, 80 / 10 / 10 |
+| MLP | ECFP4 (2048 bits) → 1024 → 256 → 12, dropout 0.3, Adam 1e-3, ≤ 80 epochs, patience 12 |
+| GIN | GINE, 4 residual layers × 128, mean+max pooling, dropout 0.2, Adam 1e-3, ≤ 40 epochs, patience 6 |
+| RF | 50 trees per assay on ECFP4 |
+| Detectors | 5-fold out-of-fold probabilities from logistic regression, Tanimoto kNN and an MLP |
+| Total grid | 7 conditions × 2 seeds × 15 model–defence pairs = 206 runs |
+
+---
+
+## What the notebook does
 
 | Section | Content |
 |---|---|
-| 0 | Setup (package install, resume from zip) and configuration: every setting in one cell |
-| 1 | Data curation → curated dataset + curation log |
-| 2 | **Task 1**: natural noise (imbalance, replicate and cross-assay disagreement) |
-| 3 | Synthetic noise injection |
-| 4 | Models (MLP, GINE, RF) and training, incl. label smoothing and loss correction |
-| 5 | Noise detectors (out-of-fold probabilities, confident learning, ensemble filter) |
-| 6 | **Tasks 2 + 3**: noise level × defence × model × seed grid |
-| 7 | Results: baseline-vs-main comparison table, degradation curves, gain heatmap |
-| 8 | **Task 4**: detector flags vs. real suspect labels |
-| 9 | **Stretch**: multi-task noise interaction |
-| 10 | Model cards, package versions and the output zip |
+| 0 | Setup and configuration |
+| 1 | **Data curation**: RDKit standardisation (largest organic fragment, neutralisation, canonical SMILES), removal of invalid/inorganic records, merging of duplicate structures (conflicts logged), scaffold split → 7,831 raw records become 7,522 compounds |
+| 2 | **Task 1, natural noise**: class imbalance per assay, replicate disagreement, cross-assay disagreement (NR-AR vs NR-AR-LBD, NR-ER vs NR-ER-LBD) → definition of *suspect labels* |
+| 3 | **Task 2, synthetic noise**: seeded label flipping, symmetric and class-conditional |
+| 4 | Models (RF, multi-task MLP, GINE graph network) and training; label smoothing and forward loss correction live in the loss function |
+| 5 | Noise detectors: confident learning (cleanlab) and ensemble-disagreement filtering, both on out-of-fold predictions |
+| 6 | **Tasks 2 + 3, experiment grid**: every noise condition × model × defence × seed, scored on the clean test set |
+| 7 | Results: baseline-vs-main comparison table, degradation curves, defence-gain heat map, detector precision/recall |
+| 8 | **Task 4**: do the detectors flag real suspect labels more than concordant ones? (within label class, Fisher exact test) |
+| 9 | **Stretch**: multi-task noise interaction (noise in the 7 NR assays only; effect on the 5 clean SR assays) |
+| 10 | RF checkpoint, model cards, package versions and the output zip |
 
-## How to run (Google Colab, free T4; no Google Drive needed)
-1. Open the notebook in Colab (*File → Upload notebook*) and set *Runtime → Change runtime type → T4 GPU*.
-2. Run all cells. The Tox21 data is downloaded automatically. Outputs are written to the Colab runtime.
-   After each seed of the grid, and at the end, `CM4044_MP2-30_outputs.zip` is downloaded to your computer.
-   Allow multiple downloads when the browser asks. The zip contains:
-   * the curated dataset and curation log;
-   * results tables and figures;
-   * model cards and checkpoints.
-3. If Colab disconnects, set `RESUME_FROM_ZIP = True` in section 0, run all cells and upload the latest
-   zip. Finished runs are skipped.
-4. Submit the notebook (*File → Download → .ipynb*, with outputs), the final zip and the slides.
+### Baseline vs. main models
+- **Baseline:** the *undefended* model (standard training on the noisy labels), for RF, MLP and GIN.
+  The RF on ECFP4 is also the classical baseline.
+- **Main models:** the same architectures with one defence each, under identical splits, seeds,
+  hyperparameters and metrics:
 
-Keep the tab open during long runs: free Colab disconnects after ~90 min without interaction.
+| Defence | Idea | Applied to |
+|---|---|---|
+| Label smoothing (`ls`) | Targets 0.95 / 0.05 instead of 1 / 0 | MLP, GIN |
+| Loss correction (`fc`) | Correct the loss for flip rates estimated by confident learning | MLP, GIN |
+| Loss correction, oracle (`fc_oracle`) | Same, with the true injected flip rates (diagnostic only) | MLP, GIN |
+| Confident learning (`cl`) | Remove labels the out-of-fold models confidently disagree with | RF, MLP, GIN |
+| Ensemble filter (`ed`) | Remove labels that ≥ 2 of 3 out-of-fold models call wrong | RF, MLP, GIN |
 
-**Splitting the grid across the group.** In section 6, each member replaces `SEEDS` with their own
-seed (`[0]`, `[1]`, `[2]`) on their own account. To combine, one person sets `RESUME_FROM_ZIP = True`,
-selects all members' zips at once in the upload dialog, and runs sections 7–10.
-
-**Quick smoke test.** Set `QUICK = True` in the configuration cell. This runs the whole notebook in
-about 10 minutes, with 1 seed, 1 noise level and a few epochs, and writes to separate
-`results_quick/` and `figures_quick/` folders.
-
-**Locally (outside Colab):** run `pip install -r requirements.txt`, then run the notebook in Jupyter.
-Outputs go to `./mp2_work/`.
-
-### Compute budget
-| Step | Colab T4 (estimate) |
-|---|---|
-| Curation + features | ~1 min |
-| Detector out-of-fold probabilities, per noise condition | ~1 min |
-| MLP run / RF run / GNN run | ~5 s / ~60 s / ~1 min |
-| Full grid: 7 conditions × 3 seeds × (3 RF + 6 MLP + 6 GNN runs) | ≈ 4–5 h in total, resumable |
-| Task 4 + stretch | ~40 min |
-
-## Repository layout
-```
-notebooks/MP2-30_Tox21_label_noise.ipynb   the whole project (code + explanations)
-data/raw/tox21.csv.gz                      raw MoleculeNet file (the notebook also downloads it; sha256-checked)
-docs/slides_outline.md                     12-slide outline with speaker split and likely questions
-requirements.txt                           package versions for a local run
-```
+Label smoothing and loss correction modify a neural network's training loss, so they do not apply to
+random forests.
 
 ---
 
-## Methods (and why)
+## Key results (mean of 2 seeds, test ROC-AUC, 12-assay mean)
 
-**Curation** (`data/curation_log.md`). RDKit cleanup, largest organic fragment, neutralisation and
-canonical SMILES. Records that do not parse, contain no carbon or have fewer than 3 heavy atoms are
-dropped. Duplicate parent structures are merged: labels that agree are kept, conflicts with a strict
-majority keep the majority label, and ties become missing. Every conflict is logged, because
-disagreement between replicates *is* natural label noise. The result is 7,522 compounds, within the
-≤10k budget, so no subsampling was needed. The split is a deterministic Bemis–Murcko scaffold split
-(80/10/10), which tests generalisation to new chemotypes.
+**Task 1, natural noise**
+- Actives are only 3–16 % of labels per assay (inactive:active ratios from 1:5 to 1:35).
+- 5.8 % of repeated measurements conflict (NR-ER 18.6 %, SR-ARE 16.3 %).
+- Related assays agree only moderately (Cohen's kappa 0.57 AR pair, 0.49 ER pair). 426 compounds are
+  active only in the full-length ER assay vs 29 only in ER-LBD, consistent with assay artefacts.
 
-**Natural noise (Task 1).** Three views:
-1. Class imbalance per assay (1:5 to 1:35).
-2. Replicate disagreement: the same parent compound measured twice with different results.
-3. Cross-assay disagreement between assays that probe the same receptor:
-   - NR-AR (full-length receptor, MDA cell line) vs. NR-AR-LBD (ligand-binding domain);
-   - NR-ER (full-length, BG1 cell line, luciferase) vs. NR-ER-LBD.
+**Task 2, degradation of undefended models**
 
-   A molecule active in one assay and inactive in its partner is a **suspect label**.
+| Model | Clean | Sym 20 % | CC 20 % |
+|---|---|---|---|
+| RF | 0.680 | 0.621 | 0.657 |
+| MLP | 0.698 | 0.629 | 0.684 |
+| **GIN** | **0.733** | **0.693** | **0.740** |
 
-**Synthetic noise (Task 2)** is injected into train + valid labels only.
-The test set always keeps its original labels.
-* `sym`: exactly *p* × (number of labelled molecules) labels per assay are flipped uniformly at random.
-  With about 5 % actives, this mostly creates *false actives*.
-* `cc`, class-conditional and prior-preserving: a fraction *p* of the actives become inactive (missed
-  actives), and the same number of inactives become active (assay artefacts). The class balance looks
-  unchanged, so the noise is invisible in the label statistics.
-* The validation set used for early stopping is also noisy, because a real modeller never has clean
-  labels to tune on.
+Symmetric noise is the most damaging, because it mostly creates false actives. The GIN is the best
+and most robust model in every condition.
 
-**Defences (Task 3)** all share one detector pipeline:
-* **Out-of-fold probabilities.** Logistic regression, Tanimoto kNN and an MLP are each trained with
-  5-fold cross-validation, so every label is scored by models that never saw it.
-* **Confident learning** (Northcutt et al. 2021) uses `cleanlab` on the averaged probabilities. It
-  also estimates the per-assay noise transition matrix, which forward loss correction uses
-  (Patrini et al. 2017).
-* **Ensemble-disagreement filter.** Each learner votes a label wrong when it confidently predicts the
-  other class, using class-specific thresholds. A label with ≥ 2 of 3 votes is removed.
-* **How cleaning removes labels.** A flagged label is set to *missing* for that assay only, so the
-  molecule still trains the other 11 heads.
+**Task 3, defences**
+- The **ensemble filter** gives the most consistent gains for RF (+0.020 to +0.028 under noise) and MLP.
+- **Loss correction** helps the MLP at high symmetric noise (+0.020), but it is limited by the
+  noise-rate estimate: the active→inactive flip rate is estimated at about 0.71 when the true rate is 0.05–0.20.
+  With the true rates, the GIN gains +0.022.
+- **Label smoothing** never helps. No practical defence reliably helps the already-robust GIN.
 
-**Task 4.** The detectors run on the natural labels of all molecules. The flag rate of suspect
-labels is compared with that of concordant labels:
-* within each label class (actives vs. actives, inactives vs. inactives), because suspects are
-  enriched in actives;
-* using a one-sided Fisher exact test, lift, precision/recall, and the AUC of the continuous
-  detector score.
+**Task 4, real suspect labels**
+- Confident learning flags 62.7 % of suspect actives vs 26.6 % of concordant actives
+  (2.4×, Fisher p = 6 × 10⁻⁴²), and 3.3 % vs 0.6 % of inactives (5.7×, p = 1 × 10⁻⁹).
+- The detector sees only chemical structures, never the partner assay's label.
 
-**Stretch goal.** 20 % noise is injected into the 7 NR assays only, and the effect on the 5 clean SR
-assays is measured in a shared network under four regimes: clean, noisy, noisy + CL cleaning, and
-NR labels dropped.
+**Stretch.** Noise in the NR assays did not measurably affect the clean SR assays (≤ 0.005), and cleaning
+the noisy assays did not help the clean ones.
 
-**Metrics.** Test ROC-AUC and PR-AUC (average precision) are computed per assay and averaged over the
-12 assays. They are reported as mean ± sd over 3 seeds, plus the paired difference against the
-undefended model with the same seed.
+Full tables: `results/comparison_table.md`, `results/suspects_report.md`, `results/interaction_report.md`.
+
+### Limitations
+- Only 2 seeds: differences below about 0.01 ROC-AUC are within seed-to-seed variation.
+- A suspect label is not a proven error; disagreeing assays may reflect real biology.
+- The synthetic noise is structure-independent, unlike real assay errors.
+- ToxCast (optional second noise profile in the brief) was not used.
+
+---
 
 ## Reproducibility
-* Fixed seeds: the noise draw uses seed `10000+s`, model initialisation and batch order use seed `s`,
-  and the CV folds are seeded. The split is deterministic. The raw file is checked against its SHA-256.
-* `results/versions.json` records the exact package versions.
-* Exact bit-for-bit GPU reproducibility is not guaranteed, because PyG scatter operations use atomic
-  adds on CUDA. Differences are far below the seed-to-seed spread.
+- Fixed seeds for noise injection (`10000 + seed`), model initialisation, batch order and cross-validation folds.
+- The scaffold split is deterministic, and the raw data file is verified by SHA-256.
+- Package versions and GPU are recorded in `results/versions.json`.
+- Bit-identical GPU results are not guaranteed (PyTorch Geometric uses atomic operations on CUDA);
+  differences are far smaller than the seed-to-seed spread.
 
 ## References
 1. Mayr, A.; Klambauer, G.; Unterthiner, T.; Hochreiter, S. DeepTox: Toxicity prediction using deep learning. *Front. Environ. Sci.* 2016, 3, 80.
@@ -153,4 +151,4 @@ undefended model with the same seed.
 3. Wu, Z.; Ramsundar, B.; Feinberg, E. N.; et al. MoleculeNet: a benchmark for molecular machine learning. *Chem. Sci.* 2018, 9, 513–530.
 4. Patrini, G.; Rozza, A.; Menon, A. K.; Nock, R.; Qu, L. Making deep neural networks robust to label noise: a loss correction approach. *CVPR* 2017.
 5. Brodley, C. E.; Friedl, M. A. Identifying mislabeled training data. *J. Artif. Intell. Res.* 1999, 11, 131–167.
-6. Hu, W.; Liu, B.; Gomes, J.; et al. Strategies for pre-training graph neural networks. *ICLR* 2020 (GINE).
+6. Hu, W.; Liu, B.; Gomes, J.; et al. Strategies for pre-training graph neural networks. *ICLR* 2020.
